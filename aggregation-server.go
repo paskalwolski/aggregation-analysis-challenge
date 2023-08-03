@@ -13,7 +13,12 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
+func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		w.Write([]byte("Success"))
 
-func handleGetAnalysis(w http.ResponseWriter, r *http.Request){
-	w.Write([]byte("Success"))
+	} else {
+		w.WriteHeader(405)
+		w.Write([]byte("Method not supported"))
+	}
 }
