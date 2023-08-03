@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,8 +27,14 @@ func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid Query Provided", 400)
 			return
 		}
-
-		fmt.Printf("Dim: %v\tDur: %v", dimension, duration)
+		res := HandleQuery(duration, dimension)
+		jsonRes, err := json.Marshal(res)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error encoding JSON data: %v", err), 500)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(jsonRes))
 	} else {
 		w.WriteHeader(404)
 		w.Write([]byte("Method not supported"))
