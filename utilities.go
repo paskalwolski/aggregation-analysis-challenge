@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net/http"
 )
@@ -13,26 +14,31 @@ type AnalysisResponse struct {
 }
 
 func HandleQuery(dur, dim string) (aResponse AnalysisResponse, aError error) {
-	// var aRes AnalysisResponse
 
 	fmt.Printf("Dim: %v\tDur: %v\n", dim, dur)
 
-	client := http.Client{
+	client := &http.Client{
 		// Timeout: time.Second * 1,
 	}
-	fmt.Println("Starting Request")
-	resp, err := client.Get("https://stream.upfluence.co/stream")
-	if err != nil {
-		aError = err
-		return
-	}
-	if err != nil {
-		aError = err
-		return
-	}
 
-	fmt.Println("Done with Request")
+	sseRequest, err := http.NewRequest(http.MethodGet, "https://stream.upfluence.co/stream", nil)
+	if err != nil {
+		aError = err
+		return
+	}
+	
+	sseRequest.Header.Add("Accept", "text/event-stream")
+	resp, err := client.Do(sseRequest)
+	if err != nil {
+		aError = err
+		return
+	}
 	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan(){
+		fmt.Println(scanner.Text())
+	}
 
 	return
 }

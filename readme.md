@@ -12,9 +12,10 @@ Functions dealing with the web server - and associated URL parsing - are placed 
 
 ### My Issues
 - **Query Parsing**Originally I was going to use the `gorilla/mux` package (despite this being against the rules) but I found out that the `http` package gives access to URL parameters too - crisis avoided.
-- **Error Handling** Handling errors in the query parsing was tricky - I am not used to the error handling patterns of Go. I settled on using a idiomatic `err` value where possible, and when one was encountered, writing an Error to the response body (using the explicit `http.Error` function) and returning the endpoint handler. This gave some flexibility in being able to keep the 'flow' of the program quite obvious. I think this would have been avoided with the gorilla muxer, but alas. 
-It also would have been good to be a little more explicit in the type of error found - maybe some JSON returns with error/message/details keys.
-- 
+- **Error Handling** Handling errors in the query parsing was tricky - I am not used to the error handling patterns of Go. I settled on using an idiomatic `err` value where possible, and when one was encountered, writing an Error to the response body (using the explicit `http.Error` function) and returning the main Response. This gave some flexibility in being able to keep the 'flow' of the program quite obvious. I think this would have been avoided with the gorilla muxer, but alas. 
+It also would have been good to be a little more explicit in the type of error found - JSON returns with error/message/details keys.
+- **Using the Response** - I thought the body of a Response was just a JSON body, and was preparing to receive more 'messages' - but as it turns out, it is a stream which can be read by a scanner. As long as you are reading that stream, the connection remains open. Not sure what the timeout/response limit - is this using 'Keep-Alive'Header?
+-
 
 
 Usability testing was conducted using Postman
