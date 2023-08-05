@@ -27,7 +27,7 @@ func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid Query Provided", 400)
 			return
 		}
-		res, err := HandleQuery(duration, dimension)
+		res, err := HandleAnalysisQuery(duration, dimension)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error retrieving stream data: %v", err), 500)
 		}
