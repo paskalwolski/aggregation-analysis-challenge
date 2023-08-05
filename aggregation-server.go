@@ -27,7 +27,10 @@ func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid Query Provided", 400)
 			return
 		}
-		res := HandleQuery(duration, dimension)
+		res, err := HandleQuery(duration, dimension)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error retrieving stream data: %v", err), 500)
+		}
 		jsonRes, err := json.Marshal(res)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error encoding JSON data: %v", err), 500)
@@ -36,7 +39,6 @@ func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonRes)
 	} else {
-		w.WriteHeader(404)
-		w.Write([]byte("Method not supported"))
+		http.Error(w, "Method Not Supported", 500)
 	}
 }
