@@ -15,10 +15,13 @@ type AnalysisResponse struct {
 }
 
 func HandleAnalysisQuery(dur, dim string) (aResponse AnalysisResponse, aError error) {
-
-	// parseDuration
-
-	fmt.Printf("Dim: %v\tDur: %v\n", dim, dur)
+	funcTime := time.Now()
+	defer func() { fmt.Printf("Function Execution Took %v", time.Since(funcTime)) }()
+	duration, err := time.ParseDuration(dur)
+	if err != nil {
+		aError = err
+		return
+	}
 
 	client := &http.Client{}
 
@@ -38,36 +41,42 @@ func HandleAnalysisQuery(dur, dim string) (aResponse AnalysisResponse, aError er
 	startTime := time.Now()
 
 	//Could follow the tooltip and use a NewTimer + Stop(), but timer efficiency is not the biggest concern here
-	boom := time.After(3 * time.Second)
+	boom := time.After(duration)
 	//Flag Channel for reading response
 	scan := make(chan bool)
 	//Create a buffered reader for the SSE response
 	scanner := bufio.NewScanner(resp.Body)
 
-	go func() {
+	go func(parentError error) {
+	ScanLoop:
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			select {
+			case <-scan:
+				//Interrupting the Read Loop externally
+				break ScanLoop
+			default:
+				//Normal Read Operation:
+				fmt.Println(scanner.Text())
+			}
 		}
-		// if scanner.Err() != nil {
-		// TODO: Handle errors with the response scanning
-		// }
+		if scanner.Err() != nil {
+			fmt.Println(scanner.Err())
+			aError = scanner.Err()
+		}
 		// Signal that channel read is complete if EOF or Error reached
 		scan <- true
-	}()
+	}(aError)
 
-ReadLoop:
-	for {
-		select {
-		case <-scan:
-			fmt.Println("Scanner Closed: Internal")
-			break ReadLoop
-
-		case stamp := <-boom:
-			fmt.Printf("Time Channel Closed: %v", stamp)
-			resp.Body.Close()
-		}
+	select {
+	case <-scan:
+		fmt.Println("Scanner Closed: Internal")
+	case <-boom:
+		fmt.Printf("Time Channel Closed\n")
+		scan <- true
 	}
-
+	if aError != nil {
+		return
+	}
 	fmt.Printf("Requested for %v\n", time.Since(startTime))
 	return
 }

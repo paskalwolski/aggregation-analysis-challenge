@@ -30,6 +30,7 @@ func handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 		res, err := HandleAnalysisQuery(duration, dimension)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error retrieving stream data: %v", err), 500)
+			return
 		}
 		jsonRes, err := json.Marshal(res)
 		if err != nil {
