@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -42,11 +43,12 @@ func HandleAnalysisQuery(dur, dim string) (aResponse AnalysisResponse, aError er
 	defer func() { fmt.Printf("Request Open for %v\n", time.Since(startTime)) }()
 	defer resp.Body.Close()
 
-	//Could follow the tooltip and use a NewTimer + Stop(), but timer efficiency is not the biggest concern here
+	// Could follow the tooltip and use a NewTimer + Stop(), but timer efficiency is not the biggest concern here
 	boom := time.After(duration)
 
 	// Create a buffered reader for the SSE response
 	scanner := bufio.NewScanner(resp.Body)
+
 ScanLoop:
 	for scanner.Scan() {
 		select {
@@ -54,7 +56,17 @@ ScanLoop:
 			fmt.Printf("Time Channel Closed\n")
 			break ScanLoop
 		default:
-			fmt.Println(scanner.Text())
+			text := scanner.Text()
+			if text != "" {
+				trimmedText := fmt.Sprintf("{%v", text[7:])
+				fmt.Println(trimmedText)
+				var m map[string]any
+				err = json.Unmarshal([]byte(trimmedText), &m)
+				if err != nil {
+					fmt.Println(err)
+				}
+
+			}
 		}
 	}
 	fmt.Printf("Reading Request for %v\n", time.Since(startTime))
