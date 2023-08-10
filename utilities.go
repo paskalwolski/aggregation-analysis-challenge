@@ -27,13 +27,14 @@ func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aE
 		log.Println(err)
 		return
 	}
-
+	fmt.Printf("TIMEPARSE: %v\n", time.Since(funcTime).Seconds())
 	sseResponse, responseStartTime, respErr := getSSEResponse()
 	if respErr != nil {
 		log.Println(respErr)
 		aError = fmt.Errorf("error accessing sse stream")
 		return
 	}
+	fmt.Printf("RESPONSEOPEN: %v\n", time.Since(funcTime).Seconds())
 	// Check how long the response was open for based on specified duration
 	defer func() { log.Printf("Request Open for %v\n", time.Since(responseStartTime)) }()
 	defer sseResponse.Body.Close()
@@ -43,12 +44,13 @@ func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aE
 
 	// Create a buffered reader for the SSE response
 	scanner := bufio.NewScanner(sseResponse.Body)
+	fmt.Printf("SCANOPEN: %v\n", time.Since(funcTime).Seconds())
 	// Create counters for analysis
 	var dimensionCounter, dataCounter float64 = 0, 0
-	
-// Loop that runs each time there is a new value on the scanner
-// It checks that there is still time left, and if so proceeds to read the value. 
-// If the time has run out, the boom case is run, the current value is discarded - and the loop does not run again. 
+
+	// Loop that runs each time there is a new value on the scanner
+	// It checks that there is still time left, and if so proceeds to read the value.
+	// If the time has run out, the boom case is run, the current value is discarded - and the loop does not run again.
 ScanLoop:
 	for scanner.Scan() {
 		select {
