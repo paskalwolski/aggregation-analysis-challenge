@@ -74,7 +74,7 @@ ScanLoop:
 				}
 				// Check for the 'data' key. We have no idea what this might be, but it has to exist!
 				for k, v := range root {
-					timestamp, err := handleNumericDataExtraction(v, "timestamp")
+					timestamp, err := extractNumericKey(v, "timestamp")
 					if err != nil {
 						aError = fmt.Errorf("error extracting key from response")
 						// argument order is strange - but k is SSE data type, and v is its value - the map we are searching
@@ -82,7 +82,7 @@ ScanLoop:
 					}
 					handleTimeCheck(timestamp)
 
-					dimFloatValue, err := handleNumericDataExtraction(v, dim)
+					dimFloatValue, err := extractNumericKey(v, dim)
 					if err != nil {
 						aError = fmt.Errorf("error extracting key from response")
 						log.Printf("could not extract key %v from data %v", v, k)
@@ -111,7 +111,7 @@ ScanLoop:
 // When extracting a value using key k, it is internally type asserted.
 // If the value is numeric, this is cast to float64 - and I have not been able to manually override this.
 // This function extracts the value and coaxes it into a discrete float64 value, which can be converted further.
-func handleNumericDataExtraction(m map[string]any, k string) (val float64, eError error) {
+func extractNumericKey(m map[string]any, k string) (val float64, eError error) {
 	if data, exists := m[k]; exists {
 		// Converting dimension data to explicit float64. This has to be done first?
 		var ok bool
