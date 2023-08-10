@@ -9,13 +9,15 @@ import (
 )
 
 type AnalysisResponse struct {
-	Amount           int16
-	TimestampStart   string
-	TimestampEnd     string
-	AverageDimension float32
+	TotalPosts       int     `json:"total_posts"`
+	MinimumTimestamp int64   `json:"minimum_timestamp"`
+	MaximumTimestamp int64   `json:"maximum_timestamp"`
+	AverageDimension float64 `json:"average_dimension"`
 }
 
-func HandleAnalysisQuery(dur, dim string) (aResponse AnalysisResponse, aError error) {
+var minTime, maxTime time.Time
+
+func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aError error) {
 	funcTime := time.Now()
 	defer func() { fmt.Printf("Function Execution Took %v\n\n", time.Since(funcTime)) }()
 	duration, err := time.ParseDuration(dur)
@@ -55,6 +57,7 @@ ScanLoop:
 	for scanner.Scan() {
 		select {
 		case <-boom:
+			fmt.Printf("Boom Took %v\n", time.Since(startTime))
 			fmt.Printf("Time Channel Closed\n")
 			break ScanLoop
 		default:
@@ -63,7 +66,7 @@ ScanLoop:
 			if text != "" {
 				dataCounter++
 				// Append opening { to json line
-				trimmedText := fmt.Sprintf("{%v", text[7:])
+				trimmedText := fmt.Sprintf("%v", text[6:])
 				var root map[string]map[string]any
 				// store the {post_type: data} object
 				err = json.Unmarshal([]byte(trimmedText), &root)
@@ -73,9 +76,21 @@ ScanLoop:
 				// Check for the 'data' key
 				for k, v := range root {
 					// default numeric value from extracting map[]any is float64
+					// Extract Timestamp as default float value
+					if timestampData, exists := v["timestamp"]; exists {
+						// Converting dimension data to explicit float64. This has to be done first?
+						var floatTimestamp float64
+						var ok bool
+						floatTimestamp, ok = timestampData.(float64)
+						if !ok {
+							fmt.Println("Error converting timestamp data")
+						} else {
+							handleTimeCheck(floatTimestamp)
+						}
+					}
+					// See note above about extracting value from map[]any
 					if dimData, exists := v[dim]; exists {
 						fmt.Printf("Found data %v of %T: %v\n", dim, dimData, dimData)
-						// Converting dimension data to explicit float64. This has to be done first?
 						var dimFloatVal float64
 						var ok bool
 						// Could switch dimension, and then assert accordingly - but only asserting to float64 for now.
@@ -91,15 +106,28 @@ ScanLoop:
 			}
 		}
 	}
-	fmt.Printf("Reading Request for %v\n", time.Since(startTime))
-
-	fmt.Printf("Analysed %v messages\n", dataCounter)
-	fmt.Printf("Dimension has a total value of %v\n", dimensionCounter)
-	fmt.Printf("Mean: %v\n", float32(dimensionCounter/dataCounter))
-
 	if scanner.Err() != nil {
 		aError = scanner.Err()
 		return
 	}
+	fmt.Printf("Reading Request for %v\n", time.Since(startTime))
+
+	analysisResponse.TotalPosts = int(dataCounter)
+	analysisResponse.AverageDimension = dimensionCounter / dataCounter
+	analysisResponse.MaximumTimestamp = maxTime.Unix()
+	analysisResponse.MinimumTimestamp = minTime.Unix()
+
 	return
+}
+
+func handleTimeCheck(t float64) {
+	unixT := time.Unix(int64(t), 0)
+	if minTime.IsZero() {
+		minTime = unixT
+	} else if unixT.Before(minTime) {
+		minTime = unixT
+	}
+	if maxTime.Before(unixT) {
+		maxTime = unixT
+	}
 }
