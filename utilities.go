@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -19,46 +20,40 @@ var minTime, maxTime time.Time
 
 func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aError error) {
 	funcTime := time.Now()
-	defer func() { fmt.Printf("Function Execution Took %v\n\n", time.Since(funcTime)) }()
+	defer func() { log.Printf("Function Execution Took %v\n\n", time.Since(funcTime)) }()
 	duration, err := time.ParseDuration(dur)
 	if err != nil {
-		aError = err
+		aError = fmt.Errorf("error parsing duration")
+		log.Println(err)
 		return
 	}
 
-	client := &http.Client{}
-
-	sseRequest, err := http.NewRequest(http.MethodGet, "https://stream.upfluence.co/stream", nil)
-	if err != nil {
-		aError = err
+	sseResponse, responseStartTime, respErr := getSSEResponse()
+	if respErr != nil {
+		log.Println(respErr)
+		aError = fmt.Errorf("error accessing sse stream")
 		return
 	}
-
-	sseRequest.Header.Add("Accept", "text/event-stream")
-
-	resp, err := client.Do(sseRequest)
-	if err != nil {
-		aError = err
-		return
-	}
-	startTime := time.Now()
-	defer func() { fmt.Printf("Request Open for %v\n", time.Since(startTime)) }()
-	defer resp.Body.Close()
+	// Check how long the response was open for based on specified duration
+	defer func() { log.Printf("Request Open for %v\n", time.Since(responseStartTime)) }()
+	defer sseResponse.Body.Close()
 
 	// Could follow the tooltip and use a NewTimer + Stop(), but timer efficiency is not the biggest concern here
 	boom := time.After(duration)
 
 	// Create a buffered reader for the SSE response
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(sseResponse.Body)
 	// Create counters for analysis
 	var dimensionCounter, dataCounter float64 = 0, 0
-
+	
+// Loop that runs each time there is a new value on the scanner
+// It checks that there is still time left, and if so proceeds to read the value. 
+// If the time has run out, the boom case is run, the current value is discarded - and the loop does not run again. 
 ScanLoop:
 	for scanner.Scan() {
 		select {
 		case <-boom:
-			fmt.Printf("Boom Took %v\n", time.Since(startTime))
-			fmt.Printf("Time Channel Closed\n")
+			// Time Channel Closed
 			break ScanLoop
 		default:
 			text := scanner.Text()
@@ -67,51 +62,41 @@ ScanLoop:
 				dataCounter++
 				// Append opening { to json line
 				trimmedText := fmt.Sprintf("%v", text[6:])
-				var root map[string]map[string]any
 				// store the {post_type: data} object
+				var root map[string]map[string]any
 				err = json.Unmarshal([]byte(trimmedText), &root)
 				if err != nil {
-					fmt.Println(err)
+					log.Println(err)
+					aError = fmt.Errorf("error reading stream json data")
+					return
 				}
-				// Check for the 'data' key
+				// Check for the 'data' key. We have no idea what this might be, but it has to exist!
 				for k, v := range root {
-					// default numeric value from extracting map[]any is float64
-					// Extract Timestamp as default float value
-					if timestampData, exists := v["timestamp"]; exists {
-						// Converting dimension data to explicit float64. This has to be done first?
-						var floatTimestamp float64
-						var ok bool
-						floatTimestamp, ok = timestampData.(float64)
-						if !ok {
-							fmt.Println("Error converting timestamp data")
-						} else {
-							handleTimeCheck(floatTimestamp)
-						}
+					timestamp, err := handleNumericDataExtraction(v, "timestamp")
+					if err != nil {
+						aError = fmt.Errorf("error extracting key from response")
+						// argument order is strange - but k is SSE data type, and v is its value - the map we are searching
+						log.Printf("could not extract key %v from data %v", v, k)
 					}
-					// See note above about extracting value from map[]any
-					if dimData, exists := v[dim]; exists {
-						fmt.Printf("Found data %v of %T: %v\n", dim, dimData, dimData)
-						var dimFloatVal float64
-						var ok bool
-						// Could switch dimension, and then assert accordingly - but only asserting to float64 for now.
-						dimFloatVal, ok = dimData.(float64)
-						if !ok {
-							fmt.Println("Error converting to float64")
-						}
-						dimensionCounter += dimFloatVal
-					} else {
-						fmt.Printf("Key Not Found: %v on type %v\n", dim, k)
+					handleTimeCheck(timestamp)
+
+					dimFloatValue, err := handleNumericDataExtraction(v, dim)
+					if err != nil {
+						aError = fmt.Errorf("error extracting key from response")
+						log.Printf("could not extract key %v from data %v", v, k)
 					}
+					dimensionCounter += dimFloatValue
 				}
 			}
 		}
 	}
-	if scanner.Err() != nil {
-		aError = scanner.Err()
+	if sError := scanner.Err(); sError != nil {
+		log.Println(sError)
+		aError = fmt.Errorf("error scanning incoming stream data")
 		return
 	}
-	fmt.Printf("Reading Request for %v\n", time.Since(startTime))
 
+	// Build the final Analysis response
 	analysisResponse.TotalPosts = int(dataCounter)
 	analysisResponse.AverageDimension = dimensionCounter / dataCounter
 	analysisResponse.MaximumTimestamp = maxTime.Unix()
@@ -120,6 +105,53 @@ ScanLoop:
 	return
 }
 
+// The incoming scanner stream is of an unknown shape - so it comes in as map[string]any
+// When extracting a value using key k, it is internally type asserted.
+// If the value is numeric, this is cast to float64 - and I have not been able to manually override this.
+// This function extracts the value and coaxes it into a discrete float64 value, which can be converted further.
+func handleNumericDataExtraction(m map[string]any, k string) (val float64, eError error) {
+	if data, exists := m[k]; exists {
+		// Converting dimension data to explicit float64. This has to be done first?
+		var ok bool
+		val, ok = data.(float64)
+		// Check if ok - otherwise, val is returned at the bottom
+		if !ok {
+			log.Printf("Key %v not found", k)
+			eError = fmt.Errorf("key not found")
+			return
+		}
+	} else {
+		// catch conversion errors
+		log.Printf("error converting to float64: %v of %T", data, data)
+		eError = fmt.Errorf("error converting numeric data %v of %T", data, data)
+		return
+	}
+	// Nothing failed - return the val!
+	return
+}
+
+// Handle the outbound request to the SSE Stream
+func getSSEResponse() (resp *http.Response, startTime time.Time, respErr error) {
+	client := &http.Client{}
+
+	sseRequest, err := http.NewRequest(http.MethodGet, "https://stream.upfluence.co/stream", nil)
+	if err != nil {
+		respErr = err
+		return
+	}
+
+	sseRequest.Header.Add("Accept", "text/event-stream")
+
+	resp, respErr = client.Do(sseRequest)
+	if respErr != nil {
+		return
+	}
+
+	startTime = time.Now()
+	return
+}
+
+// Logic for comparing the current time to the existing min and max times
 func handleTimeCheck(t float64) {
 	unixT := time.Unix(int64(t), 0)
 	if minTime.IsZero() {
