@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
@@ -54,5 +55,59 @@ func TestTimeCheck(t *testing.T) {
 		t.Log(max)
 		t.Log(lateStartDate)
 		t.Error("Did not change Max Time")
+	}
+}
+
+func TestGetSSEResponse(t *testing.T) {
+	resp, _, _ := getSSEResponse()
+	if resp.Request.URL.String() == "https://stream.upfluence.co/stream" {
+		t.Log("Correct URL Requested")
+	} else {
+		t.Log(resp.Request.URL.String())
+		t.Error("Incorrect URL Requested")
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		t.Log("Request Accepted")
+	} else {
+		t.Log(resp.StatusCode)
+		t.Error("Request Refused")
+	}
+}
+
+func TestExtractNumericKey(t *testing.T) {
+	// testing data with a 'likes' key but no 'retweets' key, and some extra keys
+	// All the values are float64 - this is what they are read as default, so had to be forced here
+	data := map[string]any{
+		"id":        100536070,
+		"title":     "A Test Datastream",
+		"likes":     float64(15),
+		"comments":  float64(0),
+		"timestamp": float64(1691726344),
+	}
+
+	val, _ := extractNumericKey(data, "likes")
+	if val == 15 {
+		t.Log("Correct Likes Value Extracted")
+	} else {
+		t.Logf("%v: %T", val, val)
+		t.Error("Incorrect Likes Value Extracted")
+	}
+
+	// Check for 0 extraction
+	data["likes"] = 0
+	val, _ = extractNumericKey(data, "likes")
+	if val == 0 {
+		t.Log("Correct 0 Value Extracted")
+	} else {
+		t.Error("Incorrect 0 Value Extracted")
+	}
+
+	// Check for non-existant key extraction
+	val, _ = extractNumericKey(data, "likes")
+	if val == 0 {
+		t.Log("Correct non-existant key extracted")
+	} else {
+		t.Error("Incorrect Non-Existant Key Value Extracted")
 	}
 }

@@ -84,11 +84,14 @@ The final response is created by the worker function, and handed back to the ser
 
 
 # Testing the Application
-Right now, there is no explicit testing available for this project. 
-To be honest, this is because I haven't read anything about testing frameworks in Go - it is definitely the next area for me to explore.
 
 The highly coupled nature of this code also makes unit testing quite challenging - there is a single entry point (`HandleAnalysisQuery`) that encompasses all the 'logical' aspects of this challenge. 
-However, unit tests can be written for 2 of the 3 utility functions. 
+However, unit tests have been written for 2 of the 3 utility functions. 
+
+These tests can be run as follows: 
+```
+go test .
+```
 
 Integration testing was run from Postman - which allowed me to control the query parameters, and view the response. 
 

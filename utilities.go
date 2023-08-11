@@ -118,15 +118,13 @@ func extractNumericKey(m map[string]any, k string) (val float64, eError error) {
 		val, ok = data.(float64)
 		// Check if ok - otherwise, val is returned at the bottom
 		if !ok {
-			log.Printf("Key %v not found", k)
-			eError = fmt.Errorf("key not found")
+			// catch conversion errors
+			log.Printf("error converting to float64: %v of %T", data, data)
+			eError = fmt.Errorf("error converting numeric data %v of %T", data, data)
 			return
 		}
 	} else {
-		// catch conversion errors
-		log.Printf("error converting to float64: %v of %T", data, data)
-		eError = fmt.Errorf("error converting numeric data %v of %T", data, data)
-		return
+		log.Printf("Key %v not found", k)
 	}
 	// Nothing failed - return the val!
 	return
