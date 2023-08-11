@@ -16,8 +16,6 @@ type AnalysisResponse struct {
 	AverageDimension float64 `json:"average_dimension"`
 }
 
-var minTime, maxTime time.Time
-
 func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aError error) {
 	funcTime := time.Now()
 	defer func() { log.Printf("Function Execution Took %v\n\n", time.Since(funcTime)) }()
@@ -47,6 +45,8 @@ func HandleAnalysisQuery(dur, dim string) (analysisResponse AnalysisResponse, aE
 	fmt.Printf("SCANOPEN: %v\n", time.Since(funcTime).Seconds())
 	// Create counters for analysis
 	var dimensionCounter, dataCounter float64 = 0, 0
+	// Create time trackers
+	var minTime, maxTime time.Time
 
 	// Loop that runs each time there is a new value on the scanner
 	// It checks that there is still time left, and if so proceeds to read the value.
@@ -80,7 +80,7 @@ ScanLoop:
 						// argument order is strange - but k is SSE data type, and v is its value - the map we are searching
 						log.Printf("could not extract key %v from data %v", v, k)
 					}
-					handleTimeCheck(timestamp)
+					minTime, maxTime = timeCheck(timestamp, minTime, maxTime)
 
 					dimFloatValue, err := extractNumericKey(v, dim)
 					if err != nil {
@@ -154,14 +154,15 @@ func getSSEResponse() (resp *http.Response, startTime time.Time, respErr error) 
 }
 
 // Logic for comparing the current time to the existing min and max times
-func handleTimeCheck(t float64) {
+func timeCheck(t float64, minT time.Time, maxT time.Time) (time.Time, time.Time) {
 	unixT := time.Unix(int64(t), 0)
-	if minTime.IsZero() {
-		minTime = unixT
-	} else if unixT.Before(minTime) {
-		minTime = unixT
+	if minT.IsZero() {
+		minT = unixT
+	} else if unixT.Before(minT) {
+		minT = unixT
 	}
-	if maxTime.Before(unixT) {
-		maxTime = unixT
+	if maxT.Before(unixT) {
+		maxT = unixT
 	}
+	return minT, maxT
 }
