@@ -47,6 +47,8 @@ Similarly, the time taken to analyse a single post's data could slow down the sc
 
 The request to the SSE stream also takes some time to handle (~1.5 seconds) This, combined with the time taken for pre- and post-request analysis, means that the endpoint tends to run for `n+2` seconds, where `n` is the duration specified in the URL query in seconds. 
 
+The handling of the SSE data (see below) and interacting with teh SSE stream are highly coupled - the data stream is analysed in realtime, and because the operations are relatively lightweight (calculating a running total, and keeping a counter) this has a negligible impact on the efficiency of the program. I priorotized the streaming operations over the calculation operations. If the operations were more heavy, then there could be more emphasis placed on gathering all the data first, and then performing the operations on a array- or map-type structure. This would make a much easier entry point for things like concurrent processing, or parallelism. Currently, the stream access operations are the biggest bottleneck. 
+
 ### My Issues
 
 - **Using the Response** - I thought the body of a Response was just a JSON body, and was preparing to receive more 'messages' - but as it turns out, it is a stream which can be read by a scanner. As long as you are reading that stream, the connection remains open. Not sure what the timeout/response limit - is this using 'Keep-Alive' Header?
@@ -82,7 +84,12 @@ The final response is created by the worker function, and handed back to the ser
 
 # Testing the Application
 Right now, there is no explicit testing available for this project. 
-To be honest, this is because I haven't read anything about testing frameworks in Go - it is definitely the next area for me to explore. 
+To be honest, this is because I haven't read anything about testing frameworks in Go - it is definitely the next area for me to explore.
+
+The highly coupled nature of this code also makes unit testing quite challenging - there is a single entry point (`HandleAnalysisQuery`) that encompasses all the 'logical' aspects of this challenge. 
+However, unit tests can be written for 2 of the 3 utility functions. 
+
+Integration testing was run from Postman - which allowed me to control the query parameters, and view the response. 
 
 # Running the Application
 The server can be run locally by running: 
