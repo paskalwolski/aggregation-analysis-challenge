@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,12 +15,13 @@ type subscriber struct {
 	duration time.Duration
 	key      string
 	value    int
-	channel  chan stats
+	channel  chan string
 }
 type publisher struct {
 	subscribers  []*subscriber
 	targetStream *http.Response
-	mu *sync.Mutex
+	subscribeMu  *sync.Mutex
+	subsMu       *sync.RWMutex
 }
 
 func main() {
@@ -29,12 +31,33 @@ func main() {
 		make([]*subscriber, 0),
 		getSSEResponse(),
 		&sync.Mutex{},
+		&sync.RWMutex{},
 	}
+	fmt.Println("New publisher created.")
+	go runPub(&pub)
 
 	http.HandleFunc("/analysis", func(w http.ResponseWriter, r *http.Request) {
-		go handleSubscriberWithResource(w, r, &pub)
+		handleSubscriberWithResource(w, r, &pub)
 	})
 	http.ListenAndServe(":8080", nil)
+}
+
+func runPub(p *publisher) {
+	scanner := bufio.NewScanner(p.targetStream.Body)
+	// Create counters for analysis
+	// var dimensionCounter, dataCounter float64 = 0, 0
+	// Create time trackers
+	// var minTime, maxTime time.Time
+
+	for scanner.Scan() {
+		t := scanner.Text()
+		// fmt.Println(scanner.Text())
+		p.subsMu.RLock()
+		for _, s := range p.subscribers {
+			s.channel <- t
+		}
+		p.subsMu.RUnlock()
+	}
 }
 
 func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *publisher) {
@@ -52,36 +75,57 @@ func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *p
 		}
 		dur, err := time.ParseDuration(duration)
 
-		sub := newSub(dur, dimension, pub.mu)
+		sub := newSub(dur, dimension, pub.subscribeMu)
 		pub.addSubscriber(sub)
+		go sub.getSubData()
 		boom := time.After(dur)
-		select {
-		case <-boom:
-			fmt.Printf("Time Channel Closed")
-			pub.unSub(sub)
-		}
+		<-boom
+		fmt.Printf("Time Channel Closed\n")
+		pub.unSub(sub)
 
 	} else {
 		http.Error(w, "method not supported", 404)
 	}
 }
 
-func (p *publisher) addSubscriber(s *subscriber) {
-	p.subscribers = append(p.subscribers, s)
+func (s *subscriber) getSubData() {
+	for v := range s.channel{
+		fmt.Println(v)
+	}
 }
 
-func (p *publisher) unSub(s *subscriber) {
+func (p *publisher) addSubscriber(s *subscriber) {
+	p.subsMu.Lock()
+	p.subscribers = append(p.subscribers, s)
+	p.subsMu.Unlock()
+}
+
+func (p *publisher) unSub(sub *subscriber) {
 	// remove the sub  from the pub's sub list
+	for i, s := range p.subscribers {
+		if s.id == sub.id {
+			p.subsMu.Lock()
+			fmt.Printf("Ready to unsub at position %v\n", i)
+			// Quick 2-step to pop item. Replace index with last element
+			p.subscribers[i] = p.subscribers[len(p.subscribers)-1]
+			// trim last element
+			p.subscribers = p.subscribers[:len(p.subscribers)-1]
+			p.subsMu.Unlock()
+			close(s.channel)
+		}
+	}
 }
 
 func newSub(dur time.Duration, dim string, mu *sync.Mutex) (s *subscriber) {
-	return &subscriber{
+	s = &subscriber{
 		createNewSubId(mu),
 		dur,
 		dim,
 		0,
-		make(chan stats),
+		make(chan string),
 	}
+	fmt.Printf("Created new sub with ID %v\n", s.id)
+	return
 }
 
 func createNewSubId(mu *sync.Mutex) (id int64) {
