@@ -15,6 +15,7 @@ type subscriber struct {
 	duration time.Duration
 	key      string
 	value    int
+	posts    int
 	channel  chan map[string]interface{}
 	open     bool
 }
@@ -35,10 +36,10 @@ func main() {
 		&sync.RWMutex{},
 	}
 	fmt.Println("New publisher created.")
-	go runPub(&pub)
+	go runPublisher(&pub)
 
 	http.HandleFunc("/analysis", func(w http.ResponseWriter, r *http.Request) {
-		handleSubscriberWithResource(w, r, &pub)
+		handleSubscriberWithPublisher(w, r, &pub)
 	})
 	http.ListenAndServe(":8080", nil)
 }
@@ -47,7 +48,7 @@ func main() {
 //
 // This interprets the incoming SSE stream, and parses data events into a map.
 // The map is sent to the list of subscribers.
-func runPub(p *publisher) {
+func runPublisher(p *publisher) {
 	scanner := bufio.NewScanner(p.targetStream.Body)
 	// Create counters for analysis
 	// var dimensionCounter, dataCounter float64 = 0, 0
@@ -60,10 +61,11 @@ func runPub(p *publisher) {
 		switch event {
 		case "data":
 			data := decomposeDataEvent(body)
+			_, postData := decomposePost(data)
 			p.subsMu.RLock()
 			for _, s := range p.subscribers {
 				if s.open {
-					s.channel <- data
+					s.channel <- postData
 				}
 			}
 			p.subsMu.RUnlock()
@@ -93,11 +95,22 @@ func identifyStreamData(message []byte) (event string, body []byte) {
 
 func decomposeDataEvent(text []byte) (data map[string]interface{}) {
 	json.Unmarshal(text, &data)
-	fmt.Println(data)
 	return
 }
 
-func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *publisher) {
+func decomposePost(post map[string]any) (postSource string, postData map[string]any) {
+	var ok bool
+	for source, value := range post {
+		if postData, ok = value.(map[string]any); ok {
+			postSource = source
+		} else {
+			fmt.Println("Error extracting post data")
+		}
+	}
+	return
+}
+
+func handleSubscriberWithPublisher(w http.ResponseWriter, r *http.Request, pub *publisher) {
 	if r.Method == "GET" {
 		q, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
@@ -111,8 +124,12 @@ func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *p
 			return
 		}
 		dur, err := time.ParseDuration(duration)
+		if err != nil {
+			fmt.Printf("ERROR: %v", err)
+			return
+		}
 
-		sub := newSub(dur, dimension, pub.subscribeMu)
+		sub := newSubscriber(dur, dimension, pub.subscribeMu)
 		pub.addSubscriber(sub)
 		// Add this sub to the pub's list
 		go sub.getSubData()
@@ -120,7 +137,7 @@ func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *p
 		boom := time.After(dur)
 		<-boom
 		fmt.Printf("Time Channel Closed\n")
-		pub.unSub(sub)
+		pub.unSubscribe(sub)
 
 	} else {
 		http.Error(w, "method not supported", 404)
@@ -128,9 +145,11 @@ func handleSubscriberWithResource(w http.ResponseWriter, r *http.Request, pub *p
 }
 
 func (s *subscriber) getSubData() {
-	for v := range s.channel {
+	for _ = range s.channel {
 		// sub will handle per-event processing here
-		fmt.Println(v)
+		s.posts += 1
+		fmt.Printf("Analysed Post %v", s.posts)
+		// fmt.Println(v)
 	}
 }
 
@@ -140,7 +159,7 @@ func (p *publisher) addSubscriber(s *subscriber) {
 	p.subsMu.Unlock()
 }
 
-func (p *publisher) unSub(sub *subscriber) {
+func (p *publisher) unSubscribe(sub *subscriber) {
 	//First 'lock' the sub so that it stops receiving
 	sub.open = false
 	// remove the sub  from the pub's sub list
@@ -158,11 +177,12 @@ func (p *publisher) unSub(sub *subscriber) {
 	}
 }
 
-func newSub(dur time.Duration, dim string, mu *sync.Mutex) (s *subscriber) {
+func newSubscriber(dur time.Duration, dim string, mu *sync.Mutex) (s *subscriber) {
 	s = &subscriber{
 		createNewSubId(mu),
 		dur,
 		dim,
+		0,
 		0,
 		make(chan map[string]any),
 		true,
