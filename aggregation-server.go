@@ -10,20 +10,31 @@ import (
 	"time"
 )
 
+type postData struct {
+	posts         int
+	postsWithData int
+	value         float64
+}
+
 type subscriber struct {
-	id       int64
-	duration time.Duration
-	key      string
-	value    int
-	posts    int
-	channel  chan map[string]interface{}
-	open     bool
+	id        int64
+	duration  time.Duration
+	dimension string
+	data      postData
+	channel   chan map[string]interface{}
+	open      bool
 }
 type publisher struct {
 	subscribers  []*subscriber
 	targetStream *http.Response
 	subscribeMu  *sync.Mutex
 	subsMu       *sync.RWMutex
+}
+
+type dataResponse struct {
+	PostCount        int
+	DataCoun         int
+	AverageDimension float64 `json:"average_dimension"`
 }
 
 func main() {
@@ -132,24 +143,47 @@ func handleSubscriberWithPublisher(w http.ResponseWriter, r *http.Request, pub *
 		sub := newSubscriber(dur, dimension, pub.subscribeMu)
 		pub.addSubscriber(sub)
 		// Add this sub to the pub's list
-		go sub.getSubData()
+		go sub.startAnalysingData()
 		// Start the clock!
 		boom := time.After(dur)
 		<-boom
 		fmt.Printf("Time Channel Closed\n")
 		pub.unSubscribe(sub)
 
+		res := dataResponse{
+			sub.data.posts,
+			sub.data.postsWithData,
+			sub.data.value / float64(sub.data.postsWithData),
+		}
+
+		jsonRes, err := json.Marshal(res)
+
+		if err != nil {
+			http.Error(w, "error creating response", 500)
+			return
+		}
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonRes)
+
 	} else {
 		http.Error(w, "method not supported", 404)
 	}
 }
 
-func (s *subscriber) getSubData() {
-	for _ = range s.channel {
+func (s *subscriber) startAnalysingData() {
+	for post := range s.channel {
 		// sub will handle per-event processing here
-		s.posts += 1
-		fmt.Printf("Analysed Post %v", s.posts)
-		// fmt.Println(v)
+		s.data.posts += 1
+		// fmt.Printf("Received Post %v", s.data.posts)
+		if data, exists := post[s.dimension]; exists {
+			s.data.postsWithData += 1
+			floatData := data.(float64)
+			// fmt.Printf(" with value of %v\n", floatData)
+			s.data.value += floatData
+		} else {
+			// fmt.Printf("\n")
+		}
 	}
 }
 
@@ -169,10 +203,11 @@ func (p *publisher) unSubscribe(sub *subscriber) {
 			fmt.Printf("Ready to unsub at position %v\n", i)
 			// Quick 2-step to pop item. Replace index with last element
 			p.subscribers[i] = p.subscribers[len(p.subscribers)-1]
-			// trim last element
+			// trim last element. This 2step means the index of a sub is irrelevant
 			p.subscribers = p.subscribers[:len(p.subscribers)-1]
 			p.subsMu.Unlock()
 			close(s.channel)
+			return
 		}
 	}
 }
@@ -182,8 +217,7 @@ func newSubscriber(dur time.Duration, dim string, mu *sync.Mutex) (s *subscriber
 		createNewSubId(mu),
 		dur,
 		dim,
-		0,
-		0,
+		postData{},
 		make(chan map[string]any),
 		true,
 	}
